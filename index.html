@@ -116,6 +116,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
   </div>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.min.js"></script>
 <script>
 (() => {
 'use strict';
@@ -338,21 +339,68 @@ async function shoot() {
   }, 'image/jpeg', .92);
 }
 
-/* ---------- capture (video of the spin) ---------- */
-let rec = null, recCv = null, recChunks = [];
-function pickMime() { return ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
-function startRec() {
-  const mime = pickMime(); if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진만 저장돼요.'); return; }
-  recCv = document.createElement('canvas'); recCv.width = 720; recCv.height = 1280; recChunks = [];
-  try {
-    rec = new MediaRecorder(recCv.captureStream(30), { mimeType: mime, videoBitsPerSecond: 6e6 });
-    rec.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
-    rec.onstop = () => { const blob = new Blob(recChunks, { type: mime.split(';')[0] }); rec = null; state.video = blob; $('btnVideo').hidden = false; $('shutter').classList.remove('rec'); toast('영상 준비 완료. 영상 저장을 눌러 주세요.'); };
-    rec.start(200); $('shutter').classList.add('rec');
-  } catch (e) { rec = null; toast('녹화를 시작하지 못했어요. 사진으로 저장돼요.'); }
+/* ---------- capture (video of the spin) ----------
+   1순위: WebCodecs(H.264) + mp4-muxer → 어느 폰에서든 진짜 .mp4
+   2순위: MediaRecorder(mp4 지원 브라우저만) / 그 외 webm                       */
+let rec = null, recCv = null;
+const REC_W = 720, REC_H = 1280, REC_FPS = 30;
+async function pickAvc() {
+  if (!('VideoEncoder' in window) || !window.Mp4Muxer) return null;
+  for (const codec of ['avc1.42001f', 'avc1.4d001f', 'avc1.42e01f', 'avc1.640028']) {
+    try { const r = await VideoEncoder.isConfigSupported({ codec, width: REC_W, height: REC_H, bitrate: 4e6, framerate: REC_FPS, avc: { format: 'avc' } }); if (r.supported) return codec; } catch (e) {}
+  }
+  return null;
 }
-function drawRecFrame() { if (recCv) renderOut(recCv.width, recCv.height, recCv.getContext('2d')); }
-function stopRec() { if (rec && rec.state !== 'inactive') { $('shutter').classList.remove('rec'); rec.stop(); } }
+function pickMime() { return ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
+async function startRec() {
+  recCv = document.createElement('canvas'); recCv.width = REC_W; recCv.height = REC_H;
+  const codec = await pickAvc();
+  if (codec) {
+    try {
+      const target = new Mp4Muxer.ArrayBufferTarget();
+      const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: REC_W, height: REC_H }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
+      const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { recFail('인코더 오류: ' + e.message); } });
+      enc.configure({ codec, width: REC_W, height: REC_H, bitrate: 4e6, framerate: REC_FPS, avc: { format: 'avc' }, latencyMode: 'realtime' });
+      rec = { kind: 'webcodecs', enc, muxer, target, t0: performance.now(), n: 0, last: -1, state: 'recording' };
+      $('shutter').classList.add('rec'); return;
+    } catch (e) { rec = null; }
+  }
+  const mime = pickMime();
+  if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진만 저장돼요.'); return; }
+  try {
+    const mr = new MediaRecorder(recCv.captureStream(REC_FPS), { mimeType: mime, videoBitsPerSecond: 5e6 });
+    const chunks = [];
+    mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    mr.onstop = () => { recDone(new Blob(chunks, { type: mime.split(';')[0] })); };
+    mr.onerror = e => recFail('녹화 오류: ' + (e.error?.name || '')); 
+    mr.start(200); rec = { kind: 'mediarecorder', mr, state: 'recording' }; $('shutter').classList.add('rec');
+  } catch (e) { rec = null; recFail('녹화를 시작하지 못했어요: ' + e.message); }
+}
+function drawRecFrame() {
+  if (!rec || rec.state !== 'recording' || !recCv) return;
+  renderOut(REC_W, REC_H, recCv.getContext('2d'));
+  if (rec.kind !== 'webcodecs') return;
+  const t = performance.now() - rec.t0, slot = Math.floor(t / (1000 / REC_FPS));
+  if (slot === rec.last || rec.enc.encodeQueueSize > 4) return;
+  rec.last = slot;
+  const frame = new VideoFrame(recCv, { timestamp: Math.round(t * 1000) });
+  rec.enc.encode(frame, { keyFrame: rec.n % REC_FPS === 0 }); rec.n++; frame.close();
+}
+async function stopRec() {
+  if (!rec || rec.state !== 'recording') return;
+  rec.state = 'finishing'; $('shutter').classList.remove('rec');
+  if (rec.kind === 'mediarecorder') { try { rec.mr.stop(); } catch (e) { recFail('녹화 종료 실패'); } return; }
+  try {
+    await rec.enc.flush(); rec.enc.close(); rec.muxer.finalize();
+    recDone(new Blob([rec.target.buffer], { type: 'video/mp4' }));
+  } catch (e) { recFail('영상 만들기 실패: ' + e.message); }
+}
+function recDone(blob) {
+  rec = null;
+  if (!blob || blob.size < 1000) { recFail('영상이 비어 있어요. 다시 뽑아 주세요.'); return; }
+  state.video = blob; $('btnVideo').hidden = false; toast('영상 준비 완료. 영상 저장을 눌러 주세요.');
+}
+function recFail(msg) { rec = null; state.video = null; $('btnVideo').hidden = true; toast(msg); }
 
 /* ---------- result: share / save ---------- */
 function showResult(blob, kind) {
@@ -364,19 +412,23 @@ function showResult(blob, kind) {
   if (kind === 'image') $('outImg').src = url; else { $('outVid').src = url; $('outVid').play().catch(() => {}); }
   $('btnSave').href = url; $('btnSave').download = file.name;
   $('h-result').innerHTML = kind === 'video' ? '뽑기 영상 완성!<br>스토리에 올려 주세요' : '완성! 스토리에<br>올려 주세요';
-  $('outHint').textContent = navigator.canShare?.({ files: [file] }) ? '공유 버튼을 누르면 인스타그램을 바로 고를 수 있어요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요. 이미지는 길게 눌러 저장할 수도 있어요.';
+  $('outHint').textContent = (kind === 'video' ? `mp4 ${(blob.size/1048576).toFixed(1)}MB · ` : '') + (navigator.canShare?.({ files: [file] }) ? '공유하기에서 인스타그램을 고르거나, 저장을 눌러 갤러리에 넣어 주세요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요.');
   $('status2').textContent = ''; show('s-result');
 }
 $('btnShare').addEventListener('click', async () => {
   const o = state.out; if (!o) return;
   if (navigator.canShare?.({ files: [o.file] })) {
     try { await navigator.share({ files: [o.file], title: '오늘의 말랑이' }); $('status2').textContent = '공유 창을 열었어요.'; }
-    catch (e) { if (e.name !== 'AbortError') $('status2').textContent = '공유에 실패했어요. 저장 버튼으로 내려받아 주세요.'; }
+    catch (e) { if (e.name !== 'AbortError') $('status2').textContent = '공유 실패: ' + e.message + ' · 저장 버튼을 눌러 주세요.'; }
   } else { $('btnSave').click(); $('status2').textContent = '이 브라우저는 바로 공유가 안 돼서 파일로 저장했어요.'; }
 });
 $('btnRetake').addEventListener('click', () => { show('s-cam'); fitOverlay(); loop(); });
 $('btnClose').addEventListener('click', () => { clearInterval(spinTimer); if (rec) stopRec(); });
-$('btnSave').addEventListener('click', () => { $('status2').textContent = '저장했어요. 인스타그램 스토리에서 불러와 주세요.'; });
+$('btnSave').addEventListener('click', e => {
+  const o = state.out; if (!o) return;
+  if (navigator.canShare?.({ files: [o.file] })) { e.preventDefault(); navigator.share({ files: [o.file], title: '오늘의 말랑이' }).then(() => { $('status2').textContent = o.kind === 'video' ? '공유 창에서 "비디오 저장"을 고르면 갤러리에 들어가요.' : '공유 창에서 "이미지 저장"을 고르면 갤러리에 들어가요.'; }).catch(err => { if (err.name !== 'AbortError') $('status2').textContent = '저장 실패: ' + err.message; }); }
+  else $('status2').textContent = '다운로드 폴더에 저장했어요. 인스타그램에서 불러와 주세요.';
+});
 document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRec(); });
 })();
 </script>
