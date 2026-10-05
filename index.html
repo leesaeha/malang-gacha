@@ -74,7 +74,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
   <div><p class="lead" style="color:var(--accent);font-weight:600;font-size:.8rem;letter-spacing:.08em">TODAY'S MALANG · 10 FACES</p>
     <h1>오늘 너의 말랑이는<br>어떤 표정일까?</h1></div>
   <div class="hero"><canvas id="heroCv" width="600" height="600" aria-label="말랑이"></canvas></div>
-  <p class="lead">카메라를 켜면 화면 위에 말랑이가 떠요. 뽑기 버튼을 누르면 열 가지 표정 중 하나가 나오고, 그대로 찍어서 인스타 스토리에 올릴 수 있어요.</p>
+  <p class="lead">카메라를 켜면 말랑이 모양 창이 떠요. 실물 말랑이를 창에 맞추고 뽑기를 누르면 표정이 돌아가고, 정지하면 그 표정이 오늘의 말랑이. 사진이나 영상으로 저장해 스토리에 올려 주세요.</p>
   <div class="dock">
     <button class="btn primary" id="btnCam">카메라 켜고 뽑기</button>
     <button class="btn ghost" id="btnNoCam">카메라 없이 뽑기</button>
@@ -89,10 +89,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
     <canvas id="ov" aria-label="말랑이 오버레이"></canvas>
     <div class="bar topbar">
       <button class="icon" id="btnClose" aria-label="닫기">✕</button>
-      <div style="display:flex;gap:10px">
-        <button class="icon" id="btnRecMode" aria-label="영상 녹화 모드" title="뽑기 과정을 영상으로 저장">●</button>
-        <button class="icon" id="btnFlip" aria-label="카메라 전환">⟲</button>
-      </div>
+      <button class="icon" id="btnFlip" aria-label="카메라 전환">⟲</button>
     </div>
     <div class="chip" id="chip" hidden><b id="chipName"></b><span id="chipNo"></span></div>
     <div class="card" id="card" hidden><small id="cardNo"></small><b id="cardName"></b><span id="cardLine"></span></div>
@@ -100,7 +97,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
     <div class="controls">
       <button class="side" id="btnAgain" hidden>다시 뽑기</button>
       <button class="shutter" id="shutter">뽑기</button>
-      <span class="side" id="btnShoot" style="visibility:hidden" aria-hidden="true">찍기</span>
+      <button class="side" id="btnVideo" hidden>영상 저장</button>
     </div>
   </div>
 </section>
@@ -175,6 +172,17 @@ function drawMalang(c, cx, cy, s, face) {
   if (bodyImg.complete && bodyImg.naturalWidth) c.drawImage(bodyImg, x, y, s, h);
   drawFace(c, x, y, s, face);
 }
+/* 카메라 모드: 화면 전체를 덮고 말랑이 실루엣만 뚫어 실물 말랑이가 비치게 한다 */
+function drawWindow(c, W, H, cx, cy, s, face) {
+  const h = s * BODY.h / BODY.w, x = cx - s/2, y = cy - h/2;
+  const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#cdebf9'); g.addColorStop(.5, '#f7f4ee'); g.addColorStop(1, '#efbcb5');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  if (bodyImg.complete && bodyImg.naturalWidth) {
+    c.save(); c.globalCompositeOperation = 'destination-out'; c.drawImage(bodyImg, x, y, s, h); c.restore();
+    c.save(); c.globalAlpha = .35; c.shadowColor = 'rgba(60,40,140,.6)'; c.shadowBlur = s*0.03; c.globalCompositeOperation = 'destination-over'; c.restore();
+  }
+  drawFace(c, x, y, s, face);
+}
 function drawCover(c, src, sw, sh, W, H, mirror) {
   const k = Math.max(W/sw, H/sh), dw = sw*k, dh = sh*k;
   c.save(); if (mirror) { c.translate(W, 0); c.scale(-1, 1); }
@@ -190,14 +198,12 @@ function drawCard(c, W, H, face, idx) {
   c.fillStyle = '#2a2548'; c.font = `${84*u}px Jua, sans-serif`; c.fillText(face.name, px + 44*u, py + 150*u);
   c.fillStyle = '#5a5478'; c.font = `500 ${30*u}px "IBM Plex Sans KR", sans-serif`; c.fillText(face.line, px + 48*u, py + 200*u);
   if (logoImg.complete && logoImg.naturalWidth) { const lw = 230*u, lh = lw * logoImg.naturalHeight / logoImg.naturalWidth; c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 18*u; c.drawImage(logoImg, W - 64*u - lw, 64*u + H*0.03, lw, lh); c.restore(); }
-  c.textAlign = 'right'; c.fillStyle = 'rgba(255,255,255,.95)'; c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 12*u;
-  c.font = `600 ${24*u}px "IBM Plex Sans KR", sans-serif`; c.fillText('by Fluiz', W - 64*u, 64*u + H*0.03 + 230*u*0.3 + 36*u);
   c.textAlign = 'left'; c.font = `500 ${28*u}px "IBM Plex Sans KR", sans-serif`; c.fillText(TAGS, px, H - 28*u);
 }
 
 /* ---------- state ---------- */
 const $ = id => document.getElementById(id);
-const state = { face: 0, blob: { x: .5, y: .40, s: .66 }, stream: null, facing: 'environment', noCam: false, picked: false, spinning: false, recMode: false, out: null };
+const state = { face: 0, blob: { x: .5, y: .40, s: .66 }, stream: null, facing: 'environment', noCam: false, picked: false, spinning: false, video: null, out: null };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const video = $('video'), ov = $('ov'), stage = $('stage');
 let toastT; const toast = m => { $('toast').textContent = m; $('toast').hidden = false; clearTimeout(toastT); toastT = setTimeout(() => $('toast').hidden = true, 2200); };
@@ -228,7 +234,6 @@ $('btnCam').addEventListener('click', () => startCam(false));
 $('btnNoCam').addEventListener('click', () => startCam(true));
 $('btnClose').addEventListener('click', () => { stopCam(); running = false; show('s-start'); });
 $('btnFlip').addEventListener('click', async () => { state.facing = state.facing === 'user' ? 'environment' : 'user'; try { await openCam(); } catch (e) { toast('카메라를 전환하지 못했어요.'); } });
-$('btnRecMode').addEventListener('click', () => { state.recMode = !state.recMode; $('btnRecMode').classList.toggle('on', state.recMode); toast(state.recMode ? '영상 모드: 뽑기 과정을 녹화해요' : '사진 모드'); });
 
 /* ---------- overlay loop + gestures ---------- */
 let running = false, t0 = performance.now();
@@ -240,9 +245,11 @@ function loop() {
     if ($('s-cam').hidden) { running = false; return; }
     const c = ov.getContext('2d'), W = ov.width, H = ov.height, b = state.blob;
     c.clearRect(0, 0, W, H);
-    const t = (performance.now() - t0)/1000, bob = reduced ? 0 : Math.sin(t*2.2) * H*0.004;
-    const wob = state.spinning && !reduced ? Math.sin(t*40) * 0.06 : 0;
-    c.save(); c.translate(b.x*W, b.y*H + bob); c.rotate(wob); drawMalang(c, 0, 0, b.s*W, FACES[state.face]); c.restore();
+    if (state.noCam) {
+      const t = (performance.now() - t0)/1000, bob = reduced ? 0 : Math.sin(t*2.2) * H*0.004;
+      const wob = state.spinning && !reduced ? Math.sin(t*40) * 0.06 : 0;
+      c.save(); c.translate(b.x*W, b.y*H + bob); c.rotate(wob); drawMalang(c, 0, 0, b.s*W, FACES[state.face]); c.restore();
+    } else drawWindow(c, W, H, b.x*W, b.y*H, b.s*W, FACES[state.face]);
     if (rec) drawRecFrame();
     requestAnimationFrame(frame);
   };
@@ -265,43 +272,42 @@ ov.addEventListener('pointermove', e => {
 const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch0 = null; };
 ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
 
-/* ---------- gacha ---------- */
+/* ---------- gacha: 0.1초마다 표정 교체, 정지 누를 때까지 계속 ---------- */
+const STEP_MS = 100; let spinTimer = null;
 function resetPick() {
-  state.picked = false; state.face = 0;
-  $('chip').hidden = true; $('card').hidden = true; $('btnAgain').hidden = true;
+  state.picked = false; state.spinning = false; state.face = 0; state.video = null; clearInterval(spinTimer);
+  $('chip').hidden = true; $('card').hidden = true; $('btnAgain').hidden = true; $('btnVideo').hidden = true;
   $('shutter').textContent = '뽑기'; $('shutter').classList.remove('rec');
 }
 function spin() {
   if (state.spinning) return;
-  state.spinning = true; state.picked = false; $('card').hidden = true; $('btnAgain').hidden = true;
-  $('chip').hidden = false; $('chip').classList.add('spin'); $('shutter').textContent = '...';
-  if (state.recMode && !state.noCam) startRec();
-  const final = Math.floor(Math.random()*FACES.length), steps = reduced ? 5 : 18; let i = 0;
-  const tick = () => {
-    i++;
-    if (i < steps) {
-      state.face = (state.face + 1 + Math.floor(Math.random()*(FACES.length-2))) % FACES.length;
-      $('chipName').textContent = FACES[state.face].name; $('chipNo').textContent = '';
-      setTimeout(tick, 50 + i*i*1.2);
-    } else {
-      state.face = final; state.spinning = false; state.picked = true;
-      const f = FACES[final];
-      $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = `NO.${String(final+1).padStart(2,'0')}`;
-      $('cardNo').textContent = `NO.${String(final+1).padStart(2,'0')} / 10`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
-      $('btnAgain').hidden = false; $('shutter').textContent = '찍기';
-      if (rec) setTimeout(stopRec, 1600);
-    }
-  };
-  tick();
+  state.spinning = true; state.picked = false; state.video = null;
+  $('card').hidden = true; $('btnAgain').hidden = true; $('btnVideo').hidden = true;
+  $('chip').hidden = false; $('chip').classList.add('spin'); $('shutter').textContent = '정지';
+  startRec();
+  spinTimer = setInterval(() => {
+    state.face = (state.face + 1 + Math.floor(Math.random()*(FACES.length-1))) % FACES.length;
+    $('chipName').textContent = FACES[state.face].name; $('chipNo').textContent = '';
+  }, reduced ? STEP_MS*4 : STEP_MS);
 }
-$('shutter').addEventListener('click', () => state.picked ? shoot() : spin());
+function stopSpin() {
+  clearInterval(spinTimer); state.spinning = false; state.picked = true;
+  const i = state.face, f = FACES[i];
+  $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = `NO.${String(i+1).padStart(2,'0')}`;
+  $('cardNo').textContent = `NO.${String(i+1).padStart(2,'0')} / 10`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
+  $('btnAgain').hidden = false; $('shutter').textContent = '찍기';
+  if (rec) { toast('영상 마무리 중...'); setTimeout(stopRec, 1500); }
+}
+$('shutter').addEventListener('click', () => state.spinning ? stopSpin() : (state.picked ? shoot() : spin()));
 $('btnAgain').addEventListener('click', () => { resetPick(); spin(); });
+$('btnVideo').addEventListener('click', () => { if (state.video) showResult(state.video, 'video'); });
 
 /* ---------- capture (photo) ---------- */
 function renderOut(W, H, c) {
   if (state.noCam) { const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#cdebf9'); g.addColorStop(.5, '#f7f4ee'); g.addColorStop(1, '#efbcb5'); c.fillStyle = g; c.fillRect(0, 0, W, H); }
   else drawCover(c, video, video.videoWidth, video.videoHeight, W, H, state.facing === 'user');
-  const b = state.blob; drawMalang(c, b.x*W, b.y*H, b.s*W, FACES[state.face]);
+  const b = state.blob;
+  if (state.noCam) drawMalang(c, b.x*W, b.y*H, b.s*W, FACES[state.face]); else drawWindow(c, W, H, b.x*W, b.y*H, b.s*W, FACES[state.face]);
   drawCard(c, W, H, FACES[state.face], state.face);
 }
 async function shoot() {
@@ -319,16 +325,16 @@ async function shoot() {
 let rec = null, recCv = null, recChunks = [];
 function pickMime() { return ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
 function startRec() {
-  const mime = pickMime(); if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진으로 저장돼요.'); return; }
+  const mime = pickMime(); if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진만 저장돼요.'); return; }
   recCv = document.createElement('canvas'); recCv.width = 720; recCv.height = 1280; recChunks = [];
   try {
     rec = new MediaRecorder(recCv.captureStream(30), { mimeType: mime, videoBitsPerSecond: 6e6 });
     rec.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
-    rec.onstop = () => { const blob = new Blob(recChunks, { type: mime.split(';')[0] }); rec = null; showResult(blob, 'video'); };
+    rec.onstop = () => { const blob = new Blob(recChunks, { type: mime.split(';')[0] }); rec = null; state.video = blob; $('btnVideo').hidden = false; $('shutter').classList.remove('rec'); toast('영상 준비 완료. 영상 저장을 눌러 주세요.'); };
     rec.start(200); $('shutter').classList.add('rec');
   } catch (e) { rec = null; toast('녹화를 시작하지 못했어요. 사진으로 저장돼요.'); }
 }
-function drawRecFrame() { renderOut(recCv.width, recCv.height, recCv.getContext('2d')); }
+function drawRecFrame() { if (recCv) renderOut(recCv.width, recCv.height, recCv.getContext('2d')); }
 function stopRec() { if (rec && rec.state !== 'inactive') { $('shutter').classList.remove('rec'); rec.stop(); } }
 
 /* ---------- result: share / save ---------- */
@@ -352,6 +358,7 @@ $('btnShare').addEventListener('click', async () => {
   } else { $('btnSave').click(); $('status2').textContent = '이 브라우저는 바로 공유가 안 돼서 파일로 저장했어요.'; }
 });
 $('btnRetake').addEventListener('click', () => { show('s-cam'); fitOverlay(); loop(); });
+$('btnClose').addEventListener('click', () => { clearInterval(spinTimer); if (rec) stopRec(); });
 $('btnSave').addEventListener('click', () => { $('status2').textContent = '저장했어요. 인스타그램 스토리에서 불러와 주세요.'; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRec(); });
 })();
