@@ -55,9 +55,10 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
 .card small{font-size:.7rem;letter-spacing:.1em;color:var(--accent);font-weight:600}
 .card b{font-family:var(--font-display);font-weight:400;font-size:1.7rem;color:var(--fg);line-height:1.15}
 .card span{font-size:.9rem;color:#4a4468}
-.controls{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;gap:28px;padding:18px 16px calc(22px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.45))}
+.controls{position:absolute;left:0;right:0;bottom:0;z-index:2;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;justify-items:center;gap:20px;padding:18px 16px calc(22px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.45))}
 .shutter{appearance:none;border:5px solid #fff;background:var(--accent);color:#fff;width:84px;height:84px;border-radius:50%;font-family:var(--font-display);font-size:1.25rem;cursor:pointer;box-shadow:0 10px 30px -10px rgba(0,0,0,.6);transition:transform .15s}
 .shutter:active{transform:scale(.93)}.shutter.rec{background:var(--danger)}
+.controls .side:first-child{justify-self:end}.controls .side:last-child{justify-self:start}
 .side{appearance:none;border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;padding:10px 16px;font-weight:600;font-size:.85rem;cursor:pointer;backdrop-filter:blur(6px);min-width:84px}
 .toast{position:absolute;left:50%;bottom:140px;transform:translateX(-50%);z-index:3;background:rgba(0,0,0,.7);color:#fff;padding:8px 14px;border-radius:10px;font-size:.85rem;white-space:nowrap}
 
@@ -71,10 +72,10 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
 <body>
 <main id="s-start">
   <header class="top"><img class="wordmark" src="malang_logo.png" alt="Malang by Fluiz" width="640" height="192"></header>
-  <div><p class="lead" style="color:var(--accent);font-weight:600;font-size:.8rem;letter-spacing:.08em">TODAY'S MALANG · 10 FACES</p>
+  <div><p class="lead" style="color:var(--accent);font-weight:600;font-size:.8rem;letter-spacing:.08em" id="eyebrow">TODAY'S MALANG</p>
     <h1>오늘 너의 말랑이는<br>어떤 표정일까?</h1></div>
   <div class="hero"><canvas id="heroCv" width="600" height="600" aria-label="말랑이"></canvas></div>
-  <p class="lead">카메라를 켜면 말랑이 모양 창이 떠요. 실물 말랑이를 창에 맞추고 뽑기를 누르면 표정이 돌아가고, 정지하면 그 표정이 오늘의 말랑이. 사진이나 영상으로 저장해 스토리에 올려 주세요.</p>
+  <p class="lead" id="leadText">카메라를 켜면 말랑이 모양 창이 떠요. 실물 말랑이를 창에 맞추고 뽑기를 누르면 표정이 돌아가고, 정지하면 그 표정이 오늘의 말랑이. 사진이나 영상으로 저장해 스토리에 올려 주세요.</p>
   <div class="dock">
     <button class="btn primary" id="btnCam">카메라 켜고 뽑기</button>
     <button class="btn ghost" id="btnNoCam">카메라 없이 뽑기</button>
@@ -133,12 +134,17 @@ const FACES = [
   { name:'장난 말랑', eyes:['block','line'],  mouth:'tongue', line:'웃음 포인트를 잘 찾는 날. 농담이 통해요.' },
   { name:'수줍 말랑', eyes:['block','block'], mouth:'small',  blush:true, line:'칭찬을 받게 돼요. 부끄러워 말고 받아요.' },
   { name:'삐짐 말랑', eyes:['block','block'], mouth:'pout',   line:'작은 투정도 귀엽게 보이는 날. 맛있는 거 먹기.' },
+  { name:'야르 말랑', eyes:['none','block'],  mouth:'grin',   extra:'patch', line:'보물 같은 하루. 오늘은 네가 선장이야.' },
+  { name:'코로나 말랑', eyes:['block','block'], mouth:'none', extra:'mask',  line:'오늘은 몸부터 챙기는 날. 따뜻한 차 한 잔.' },
+  { name:'썬글 말랑', eyes:['none','none'],   mouth:'small',  extra:'shades', line:'어디서든 주인공. 자신감 만렙인 하루.' },
+  { name:'눈물 말랑', eyes:['block','block'], mouth:'pout',   extra:'tear',  line:'울어도 괜찮아요. 내일은 더 좋은 날.' },
 ];
 
 /* ---------- pixel face (grid cells; real Malang = 2x3 block eyes, 14-block smile) ---------- */
 const S = BODY.span, CEN = 6.5 + S/2, C0 = Math.round(CEN - 1.5);
 const rect = (c0, r0, w, h, k = '#') => { const o = []; for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) o.push([c0+c, r0+r, k]); return o; };
 const EYE = {
+  none:  () => [],
   block: L => rect(L ? 6 : 6+S, 2, 2, 3),
   line:  L => rect(L ? 6 : 6+S, 3, 2, 1),
   happy: L => { const c = L ? 5 : 5+S; return [[c,3],[c+1,2],[c+2,2],[c+3,3]]; },
@@ -155,13 +161,22 @@ const MOUTH = {
   flat:  rect(Math.round(CEN-5),9,10,1),
   pout:  [...rect(C0,7,4,1),[C0-1,8],[C0+4,8],[C0-2,9],[C0+5,9]],
   tongue:[...SMILE, ...rect(C0,10,4,2,'p')],
+  none:  [],
 };
+/* 소품: k=진남색, m=마스크, b=눈물 */
+const EXTRA = {
+  patch:  [...rect(5,1,4,4,'k'), ...rect(0,2,5,1,'k'), [9,1,'k'],[10,1,'k'],[11,0,'k'],[12,0,'k']],
+  mask:   [...rect(5,6,S+4,5,'m'), ...rect(6,8,S+2,1,'w'), [4,7,'k'],[3,8,'k'],[9+S,7,'k'],[10+S,8,'k']],
+  shades: [...rect(5,1,4,3,'k'), ...rect(5+S,1,4,3,'k'), ...rect(9,2,S-4,1,'k'), [4,1,'k'],[9+S,1,'k']],
+  tear:   [[6,5,'b'],[6,6,'b'],[6,7,'b'],[5,7,'b']],
+};
+const INK = { '#': PURPLE, p: BLUSH, k: '#2a2548', m: '#e6eef8', w: '#ffffff', b: '#7fc4f0' };
 const BLUSH_CELLS = [...rect(2,6,2,1,'p'), ...rect(Math.round(2*CEN-3),6,2,1,'p')];
-const faceCells = f => [...EYE[f.eyes[0]](true), ...EYE[f.eyes[1]](false), ...MOUTH[f.mouth], ...(f.blush ? BLUSH_CELLS : [])];
+const faceCells = f => [...EYE[f.eyes[0]](true), ...EYE[f.eyes[1]](false), ...MOUTH[f.mouth], ...(f.blush ? BLUSH_CELLS : []), ...(f.extra ? EXTRA[f.extra] : [])];
 function drawFace(c, x, y, s, face) {
   const h = s * BODY.h / BODY.w, cell = BODY.fcell * s, gap = cell * 0.12, x0 = x + BODY.fx0 * s, y0 = y + BODY.fy0 * h;
   for (const [col, row, k] of faceCells(face)) {
-    c.fillStyle = k === 'p' ? BLUSH : PURPLE;
+    c.fillStyle = INK[k] || PURPLE;
     c.fillRect(x0 + col*cell + gap/2, y0 + row*cell + gap/2, cell - gap, cell - gap);
   }
 }
@@ -194,7 +209,7 @@ function drawCard(c, W, H, face, idx) {
   c.beginPath(); c.roundRect(px, py, pw, ph, 36*u); c.fillStyle = 'rgba(255,255,255,.93)'; c.fill(); c.restore();
   c.textBaseline = 'alphabetic'; c.textAlign = 'left';
   c.fillStyle = PURPLE; c.font = `600 ${26*u}px "IBM Plex Sans KR", sans-serif`;
-  c.fillText(`NO.${String(idx+1).padStart(2,'0')}  오늘의 말랑이`, px + 48*u, py + 64*u);
+  c.fillText(`오늘의 말랑이 · ${FACES.length}가지 중 하나`, px + 48*u, py + 64*u);
   c.fillStyle = '#2a2548'; c.font = `${84*u}px Jua, sans-serif`; c.fillText(face.name, px + 44*u, py + 150*u);
   c.fillStyle = '#5a5478'; c.font = `500 ${30*u}px "IBM Plex Sans KR", sans-serif`; c.fillText(face.line, px + 48*u, py + 200*u);
   if (logoImg.complete && logoImg.naturalWidth) { const lw = 230*u, lh = lw * logoImg.naturalHeight / logoImg.naturalWidth; c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 18*u; c.drawImage(logoImg, W - 64*u - lw, 64*u + H*0.03, lw, lh); c.restore(); }
@@ -210,6 +225,8 @@ let toastT; const toast = m => { $('toast').textContent = m; $('toast').hidden =
 function show(id) { for (const s of ['s-start','s-cam','s-result']) $(s).hidden = s !== id; window.scrollTo(0, 0); }
 
 bodyImg.onload = () => paintHero();
+$('eyebrow').textContent = `TODAY'S MALANG · ${FACES.length} FACES`;
+$('leadText').textContent = `카메라를 켜면 말랑이 모양 창이 떠요. 실물 말랑이를 창에 맞추고 뽑기를 누르면 총 ${FACES.length}가지 표정이 돌아가고, 정지하면 그 표정이 오늘의 말랑이. 사진이나 영상으로 저장해 스토리에 올려 주세요.`;
 function paintHero() { const c = $('heroCv').getContext('2d'); c.clearRect(0,0,600,600); drawMalang(c, 300, 310, 520, FACES[0]); }
 
 /* ---------- camera ---------- */
@@ -293,8 +310,8 @@ function spin() {
 function stopSpin() {
   clearInterval(spinTimer); state.spinning = false; state.picked = true;
   const i = state.face, f = FACES[i];
-  $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = `NO.${String(i+1).padStart(2,'0')}`;
-  $('cardNo').textContent = `NO.${String(i+1).padStart(2,'0')} / 10`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
+  $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = '';
+  $('cardNo').textContent = `오늘의 말랑이 · ${FACES.length}가지 중 하나`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
   $('btnAgain').hidden = false; $('shutter').textContent = '찍기';
   if (rec) { toast('영상 마무리 중...'); setTimeout(stopRec, 1500); }
 }
@@ -341,7 +358,7 @@ function stopRec() { if (rec && rec.state !== 'inactive') { $('shutter').classLi
 function showResult(blob, kind) {
   if (state.out?.url) URL.revokeObjectURL(state.out.url);
   const ext = kind === 'video' ? (blob.type.includes('mp4') ? 'mp4' : 'webm') : 'jpg';
-  const file = new File([blob], `malang_${String(state.face+1).padStart(2,'0')}.${ext}`, { type: blob.type });
+  const file = new File([blob], `malang_${Date.now()}.${ext}`, { type: blob.type });
   const url = URL.createObjectURL(blob); state.out = { blob, file, url, kind };
   $('outImg').hidden = kind !== 'image'; $('outVid').hidden = kind !== 'video';
   if (kind === 'image') $('outImg').src = url; else { $('outVid').src = url; $('outVid').play().catch(() => {}); }
