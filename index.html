@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>오늘의 말랑이 뽑기</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+/* Layout: camera-first. A 9:16 stage (live video + Malang overlay) fills the screen; controls float over it. */
+:root{
+  --bg:#f7f4ee; --fg:#2a2548; --muted:#6f6991; --accent:#5c47e1; --accent-ink:#fff;
+  --panel:#fff; --line:#e6e1f4; --pill:#8a6a3a; --pill-ink:#fff4dc; --danger:#d9534f;
+  --font-display:'Jua','Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+  --font-body:'IBM Plex Sans KR','Apple SD Gothic Neo','Noto Sans KR',sans-serif;
+  --ease:cubic-bezier(.16,1,.3,1);
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+[hidden]{display:none!important}
+button,label.btn{font-family:var(--font-body)}
+main{min-height:100%;max-width:440px;margin:0 auto;padding-inline:16px;padding-block:12px 24px;display:flex;flex-direction:column;gap:18px}
+.top{display:flex;align-items:baseline;gap:8px}
+.wordmark{height:30px;width:auto;display:block}
+.by{font-size:.68rem;font-weight:600;background:var(--pill);color:var(--pill-ink);padding:2px 9px;border-radius:999px}
+h1{font-family:var(--font-display);font-weight:400;margin:0;font-size:clamp(1.9rem,8vw,2.4rem);line-height:1.2;text-wrap:balance}
+p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
+.hero{display:grid;place-items:center;padding-block:4px}
+.hero canvas{width:min(300px,78vw);height:min(300px,78vw);animation:breathe 3.2s ease-in-out infinite}
+@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.dock{display:flex;flex-direction:column;gap:10px;margin-top:auto}
+.btn{appearance:none;border:0;border-radius:16px;padding:15px 20px;font-weight:600;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;transition:transform .18s var(--ease)}
+.btn:active{transform:scale(.97)}.btn:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.btn.primary{background:var(--accent);color:var(--accent-ink);box-shadow:0 10px 26px -14px var(--accent)}
+.btn.ghost{background:transparent;color:var(--fg);border:1.5px solid var(--line)}
+.status{min-height:1.2em;font-size:.8rem;color:var(--muted);text-align:center}.status.err{color:var(--danger)}
+
+/* camera screen */
+.cam{position:fixed;inset:0;background:#000;display:grid;place-items:center;z-index:5}
+.stage{position:relative;width:min(100vw,calc(100dvh * 9 / 16));height:min(100dvh,calc(100vw * 16 / 9));overflow:hidden;background:#111;touch-action:none}
+.stage video,.stage canvas,.stage .nocam{position:absolute;inset:0;width:100%;height:100%}
+.stage video{object-fit:cover}.stage video.mirror{transform:scaleX(-1)}
+.stage .nocam{background:radial-gradient(circle at 20% 15%,#cdebf9 0,transparent 45%),radial-gradient(circle at 85% 20%,#9fd5b7 0,transparent 45%),radial-gradient(circle at 15% 85%,#f5de8c 0,transparent 50%),radial-gradient(circle at 85% 90%,#efbcb5 0,transparent 50%),#f7f4ee}
+.stage canvas{cursor:grab}
+.bar{position:absolute;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:14px 16px;z-index:2}
+.bar.topbar{top:0;padding-top:calc(14px + env(safe-area-inset-top,0px))}
+.icon{appearance:none;border:0;width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.42);color:#fff;font-size:1.1rem;display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(6px)}
+.icon.on{background:var(--accent)}
+.icon:focus-visible{outline:3px solid #fff}
+.chip{position:absolute;left:50%;transform:translateX(-50%);top:calc(70px + env(safe-area-inset-top,0px));z-index:2;background:rgba(255,255,255,.92);color:var(--fg);border-radius:999px;padding:8px 18px;font-weight:600;font-size:.95rem;white-space:nowrap;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
+.chip b{font-family:var(--font-display);font-weight:400;color:var(--accent);font-size:1.15rem;margin-right:6px}
+.chip.spin{opacity:.85}
+.card{position:absolute;left:16px;right:16px;bottom:150px;z-index:2;background:rgba(255,255,255,.94);border-radius:20px;padding:14px 18px;display:flex;flex-direction:column;gap:2px;box-shadow:0 16px 40px -20px rgba(0,0,0,.5)}
+.card small{font-size:.7rem;letter-spacing:.1em;color:var(--accent);font-weight:600}
+.card b{font-family:var(--font-display);font-weight:400;font-size:1.7rem;color:var(--fg);line-height:1.15}
+.card span{font-size:.9rem;color:#4a4468}
+.controls{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;gap:28px;padding:18px 16px calc(22px + env(safe-area-inset-bottom,0px));background:linear-gradient(transparent,rgba(0,0,0,.45))}
+.shutter{appearance:none;border:5px solid #fff;background:var(--accent);color:#fff;width:84px;height:84px;border-radius:50%;font-family:var(--font-display);font-size:1.25rem;cursor:pointer;box-shadow:0 10px 30px -10px rgba(0,0,0,.6);transition:transform .15s}
+.shutter:active{transform:scale(.93)}.shutter.rec{background:var(--danger)}
+.side{appearance:none;border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;padding:10px 16px;font-weight:600;font-size:.85rem;cursor:pointer;backdrop-filter:blur(6px);min-width:84px}
+.toast{position:absolute;left:50%;bottom:140px;transform:translateX(-50%);z-index:3;background:rgba(0,0,0,.7);color:#fff;padding:8px 14px;border-radius:10px;font-size:.85rem;white-space:nowrap}
+
+/* result screen */
+.preview{width:min(100%,calc(62dvh * 9 / 16));margin:0 auto;border-radius:18px;display:block;box-shadow:0 24px 50px -30px rgba(40,30,120,.55);background:#000}
+.hint{font-size:.8rem;color:var(--muted);text-align:center}
+.row{display:flex;gap:10px}.row>*{flex:1}
+@media (prefers-reduced-motion: reduce){.hero canvas{animation:none}}
+</style>
+</head>
+<body>
+<main id="s-start">
+  <header class="top"><img class="wordmark" src="malang_logo.png" alt="Malang by Fluiz" width="640" height="192"></header>
+  <div><p class="lead" style="color:var(--accent);font-weight:600;font-size:.8rem;letter-spacing:.08em">TODAY'S MALANG · 10 FACES</p>
+    <h1>오늘 너의 말랑이는<br>어떤 표정일까?</h1></div>
+  <div class="hero"><canvas id="heroCv" width="600" height="600" aria-label="말랑이"></canvas></div>
+  <p class="lead">카메라를 켜면 화면 위에 말랑이가 떠요. 뽑기 버튼을 누르면 열 가지 표정 중 하나가 나오고, 그대로 찍어서 인스타 스토리에 올릴 수 있어요.</p>
+  <div class="dock">
+    <button class="btn primary" id="btnCam">카메라 켜고 뽑기</button>
+    <button class="btn ghost" id="btnNoCam">카메라 없이 뽑기</button>
+    <p class="status" id="status0" role="status"></p>
+  </div>
+</main>
+
+<section class="cam" id="s-cam" hidden aria-label="카메라">
+  <div class="stage" id="stage">
+    <div class="nocam" id="nocam" hidden></div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="ov" aria-label="말랑이 오버레이"></canvas>
+    <div class="bar topbar">
+      <button class="icon" id="btnClose" aria-label="닫기">✕</button>
+      <div style="display:flex;gap:10px">
+        <button class="icon" id="btnRecMode" aria-label="영상 녹화 모드" title="뽑기 과정을 영상으로 저장">●</button>
+        <button class="icon" id="btnFlip" aria-label="카메라 전환">⟲</button>
+      </div>
+    </div>
+    <div class="chip" id="chip" hidden><b id="chipName"></b><span id="chipNo"></span></div>
+    <div class="card" id="card" hidden><small id="cardNo"></small><b id="cardName"></b><span id="cardLine"></span></div>
+    <div class="toast" id="toast" hidden></div>
+    <div class="controls">
+      <button class="side" id="btnAgain" hidden>다시 뽑기</button>
+      <button class="shutter" id="shutter">뽑기</button>
+      <span class="side" id="btnShoot" style="visibility:hidden" aria-hidden="true">찍기</span>
+    </div>
+  </div>
+</section>
+
+<main id="s-result" hidden>
+  <header class="top"><img class="wordmark" src="malang_logo.png" alt="Malang by Fluiz" width="640" height="192"></header>
+  <h1 id="h-result">완성! 스토리에<br>올려 주세요</h1>
+  <img class="preview" id="outImg" alt="완성 사진" hidden>
+  <video class="preview" id="outVid" controls playsinline hidden></video>
+  <p class="hint" id="outHint">공유 버튼을 누르면 인스타그램을 바로 고를 수 있어요.</p>
+  <div class="dock">
+    <button class="btn primary" id="btnShare">공유하기</button>
+    <div class="row"><a class="btn ghost" id="btnSave" download="malang.jpg" href="#">저장</a><button class="btn ghost" id="btnRetake">다시 찍기</button></div>
+    <p class="status" id="status2" role="status"></p>
+  </div>
+</main>
+
+<script>
+(() => {
+'use strict';
+const PURPLE = '#5c47e1', BLUSH = '#f09a93';
+const TAGS = '#말랑 #Malang #플루이즈';
+/* BODY: make_body.py가 원본 이미지에서 측정한 값. span = 왼눈→오른눈 셀 간격, fx0/fy0 = 격자 원점(몸통 비율), fcell = 셀 크기(몸통 너비 비율) */
+const BODY = {"span": 13, "w": 2370, "h": 2338, "fx0": 0.0989, "fy0": 0.2941, "fcell": 0.03027};
+const FACES = [
+  { name:'활짝 말랑', eyes:['block','block'], mouth:'smile',  line:'오늘은 웃을 일만 생겨요. 입꼬리 그대로 유지!' },
+  { name:'찡긋 말랑', eyes:['line','block'],  mouth:'small',  line:'비밀 하나가 당신 편이 돼요. 윙크 한 번 날려 보세요.' },
+  { name:'심쿵 말랑', eyes:['heart','heart'], mouth:'small',  line:'누군가 당신을 몰래 좋아하고 있어요.' },
+  { name:'깜짝 말랑', eyes:['wide','wide'],   mouth:'o',      line:'예상 못 한 좋은 소식이 와요. 놀랄 준비!' },
+  { name:'꾸벅 말랑', eyes:['line','line'],   mouth:'flat',   line:'오늘은 쉬어 가도 돼요. 낮잠이 보약.' },
+  { name:'뿌듯 말랑', eyes:['happy','happy'], mouth:'grin',   line:'하던 일이 딱 맞아떨어져요. 스스로 칭찬!' },
+  { name:'두근 말랑', eyes:['star','star'],   mouth:'smile',  line:'새로운 시작에 운이 따라요. 지금 바로 도전.' },
+  { name:'장난 말랑', eyes:['block','line'],  mouth:'tongue', line:'웃음 포인트를 잘 찾는 날. 농담이 통해요.' },
+  { name:'수줍 말랑', eyes:['block','block'], mouth:'small',  blush:true, line:'칭찬을 받게 돼요. 부끄러워 말고 받아요.' },
+  { name:'삐짐 말랑', eyes:['block','block'], mouth:'pout',   line:'작은 투정도 귀엽게 보이는 날. 맛있는 거 먹기.' },
+];
+
+/* ---------- pixel face (grid cells; real Malang = 2x3 block eyes, 14-block smile) ---------- */
+const S = BODY.span, CEN = 6.5 + S/2, C0 = Math.round(CEN - 1.5);
+const rect = (c0, r0, w, h, k = '#') => { const o = []; for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) o.push([c0+c, r0+r, k]); return o; };
+const EYE = {
+  block: L => rect(L ? 6 : 6+S, 2, 2, 3),
+  line:  L => rect(L ? 6 : 6+S, 3, 2, 1),
+  happy: L => { const c = L ? 5 : 5+S; return [[c,3],[c+1,2],[c+2,2],[c+3,3]]; },
+  star:  L => { const c = L ? 6 : 7+S; return [[c,1],[c,2],[c-2,3],[c-1,3],[c,3],[c+1,3],[c+2,3],[c,4],[c,5]]; },
+  wide:  L => { const c = L ? 6 : 7+S; return [...rect(c-1,1,3,1),[c-1,2],[c+1,2],[c-1,3],[c+1,3],...rect(c-1,4,3,1)]; },
+  heart: L => { const c = L ? 6 : 7+S; return [[c-1,1],[c+1,1],...rect(c-2,2,5,1),...rect(c-1,3,3,1),[c,4]]; },
+};
+const SMILE = [[4,7],[9+S,7],[5,8],[8+S,8],...rect(6,9,S+2,1)];
+const MOUTH = {
+  smile: SMILE,
+  small: [[6,8],[7+S,8],...rect(7,9,S,1)],
+  grin:  [...SMILE, ...rect(6,8,S+2,1)],
+  o:     [...rect(C0,7,4,1),[C0,8],[C0+3,8],...rect(C0,9,4,1)],
+  flat:  rect(Math.round(CEN-5),9,10,1),
+  pout:  [...rect(C0,7,4,1),[C0-1,8],[C0+4,8],[C0-2,9],[C0+5,9]],
+  tongue:[...SMILE, ...rect(C0,10,4,2,'p')],
+};
+const BLUSH_CELLS = [...rect(2,6,2,1,'p'), ...rect(Math.round(2*CEN-3),6,2,1,'p')];
+const faceCells = f => [...EYE[f.eyes[0]](true), ...EYE[f.eyes[1]](false), ...MOUTH[f.mouth], ...(f.blush ? BLUSH_CELLS : [])];
+function drawFace(c, x, y, s, face) {
+  const h = s * BODY.h / BODY.w, cell = BODY.fcell * s, gap = cell * 0.12, x0 = x + BODY.fx0 * s, y0 = y + BODY.fy0 * h;
+  for (const [col, row, k] of faceCells(face)) {
+    c.fillStyle = k === 'p' ? BLUSH : PURPLE;
+    c.fillRect(x0 + col*cell + gap/2, y0 + row*cell + gap/2, cell - gap, cell - gap);
+  }
+}
+const bodyImg = new Image(); bodyImg.src = 'malang_body.png';
+const logoImg = new Image(); logoImg.src = 'malang_logo.png';
+function drawMalang(c, cx, cy, s, face) {
+  const h = s * BODY.h / BODY.w, x = cx - s/2, y = cy - h/2;
+  if (bodyImg.complete && bodyImg.naturalWidth) c.drawImage(bodyImg, x, y, s, h);
+  drawFace(c, x, y, s, face);
+}
+function drawCover(c, src, sw, sh, W, H, mirror) {
+  const k = Math.max(W/sw, H/sh), dw = sw*k, dh = sh*k;
+  c.save(); if (mirror) { c.translate(W, 0); c.scale(-1, 1); }
+  c.drawImage(src, (W-dw)/2, (H-dh)/2, dw, dh); c.restore();
+}
+function drawCard(c, W, H, face, idx) {
+  const px = W*0.055, pw = W - px*2, ph = H*0.125, py = H - ph - H*0.06, u = W/1080;
+  c.save(); c.shadowColor = 'rgba(30,20,80,.25)'; c.shadowBlur = 40*u; c.shadowOffsetY = 12*u;
+  c.beginPath(); c.roundRect(px, py, pw, ph, 36*u); c.fillStyle = 'rgba(255,255,255,.93)'; c.fill(); c.restore();
+  c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  c.fillStyle = PURPLE; c.font = `600 ${26*u}px "IBM Plex Sans KR", sans-serif`;
+  c.fillText(`NO.${String(idx+1).padStart(2,'0')}  오늘의 말랑이`, px + 48*u, py + 64*u);
+  c.fillStyle = '#2a2548'; c.font = `${84*u}px Jua, sans-serif`; c.fillText(face.name, px + 44*u, py + 150*u);
+  c.fillStyle = '#5a5478'; c.font = `500 ${30*u}px "IBM Plex Sans KR", sans-serif`; c.fillText(face.line, px + 48*u, py + 200*u);
+  if (logoImg.complete && logoImg.naturalWidth) { const lw = 230*u, lh = lw * logoImg.naturalHeight / logoImg.naturalWidth; c.save(); c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 18*u; c.drawImage(logoImg, W - 64*u - lw, 64*u + H*0.03, lw, lh); c.restore(); }
+  c.textAlign = 'right'; c.fillStyle = 'rgba(255,255,255,.95)'; c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = 12*u;
+  c.font = `600 ${24*u}px "IBM Plex Sans KR", sans-serif`; c.fillText('by Fluiz', W - 64*u, 64*u + H*0.03 + 230*u*0.3 + 36*u);
+  c.textAlign = 'left'; c.font = `500 ${28*u}px "IBM Plex Sans KR", sans-serif`; c.fillText(TAGS, px, H - 28*u);
+}
+
+/* ---------- state ---------- */
+const $ = id => document.getElementById(id);
+const state = { face: 0, blob: { x: .5, y: .40, s: .66 }, stream: null, facing: 'environment', noCam: false, picked: false, spinning: false, recMode: false, out: null };
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const video = $('video'), ov = $('ov'), stage = $('stage');
+let toastT; const toast = m => { $('toast').textContent = m; $('toast').hidden = false; clearTimeout(toastT); toastT = setTimeout(() => $('toast').hidden = true, 2200); };
+function show(id) { for (const s of ['s-start','s-cam','s-result']) $(s).hidden = s !== id; window.scrollTo(0, 0); }
+
+bodyImg.onload = () => paintHero();
+function paintHero() { const c = $('heroCv').getContext('2d'); c.clearRect(0,0,600,600); drawMalang(c, 300, 310, 520, FACES[0]); }
+
+/* ---------- camera ---------- */
+async function openCam() {
+  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+  const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: state.facing, width: { ideal: 1280 }, height: { ideal: 1920 } }, audio: false });
+  state.stream = s; video.srcObject = s; video.classList.toggle('mirror', state.facing === 'user');
+  await video.play();
+}
+async function startCam(noCam) {
+  state.noCam = noCam; state.picked = false; $('status0').textContent = '';
+  $('nocam').hidden = !noCam; video.hidden = noCam; $('btnFlip').hidden = noCam;
+  if (!noCam) {
+    if (!navigator.mediaDevices?.getUserMedia) { $('status0').textContent = '이 브라우저는 카메라를 쓸 수 없어요. 카메라 없이 뽑기를 눌러 주세요.'; $('status0').classList.add('err'); return; }
+    try { await openCam(); }
+    catch (e) { $('status0').textContent = '카메라 권한이 거부됐어요. 브라우저 설정에서 허용하거나 카메라 없이 뽑기를 눌러 주세요.'; $('status0').classList.add('err'); return; }
+  }
+  show('s-cam'); resetPick(); fitOverlay(); loop();
+}
+function stopCam() { if (state.stream) state.stream.getTracks().forEach(t => t.stop()); state.stream = null; video.srcObject = null; }
+$('btnCam').addEventListener('click', () => startCam(false));
+$('btnNoCam').addEventListener('click', () => startCam(true));
+$('btnClose').addEventListener('click', () => { stopCam(); running = false; show('s-start'); });
+$('btnFlip').addEventListener('click', async () => { state.facing = state.facing === 'user' ? 'environment' : 'user'; try { await openCam(); } catch (e) { toast('카메라를 전환하지 못했어요.'); } });
+$('btnRecMode').addEventListener('click', () => { state.recMode = !state.recMode; $('btnRecMode').classList.toggle('on', state.recMode); toast(state.recMode ? '영상 모드: 뽑기 과정을 녹화해요' : '사진 모드'); });
+
+/* ---------- overlay loop + gestures ---------- */
+let running = false, t0 = performance.now();
+function fitOverlay() { const r = stage.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2); ov.width = Math.round(r.width*d); ov.height = Math.round(r.height*d); }
+addEventListener('resize', fitOverlay);
+function loop() {
+  if (running) return; running = true;
+  const frame = () => {
+    if ($('s-cam').hidden) { running = false; return; }
+    const c = ov.getContext('2d'), W = ov.width, H = ov.height, b = state.blob;
+    c.clearRect(0, 0, W, H);
+    const t = (performance.now() - t0)/1000, bob = reduced ? 0 : Math.sin(t*2.2) * H*0.004;
+    const wob = state.spinning && !reduced ? Math.sin(t*40) * 0.06 : 0;
+    c.save(); c.translate(b.x*W, b.y*H + bob); c.rotate(wob); drawMalang(c, 0, 0, b.s*W, FACES[state.face]); c.restore();
+    if (rec) drawRecFrame();
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+const ptrs = new Map(); let pinch0 = null;
+const rel = e => { const r = stage.getBoundingClientRect(); return { x: (e.clientX - r.left)/r.width, y: (e.clientY - r.top)/r.height }; };
+ov.addEventListener('pointerdown', e => {
+  ov.setPointerCapture(e.pointerId); const p = rel(e); ptrs.set(e.pointerId, p);
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch0 = { d: Math.hypot(a.x-b.x, a.y-b.y), s: state.blob.s }; return; }
+  const b = state.blob, aspect = stage.clientHeight/stage.clientWidth;
+  const hit = Math.hypot(p.x - b.x, (p.y - b.y)*aspect) < b.s*0.55;
+  ptrs.set(e.pointerId, { ...p, drag: hit ? { ox: b.x - p.x, oy: b.y - p.y } : null });
+});
+ov.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return; const p = rel(e), prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, { ...prev, x: p.x, y: p.y });
+  if (ptrs.size === 2 && pinch0) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x-b.x, a.y-b.y); state.blob = { ...state.blob, s: Math.min(1.1, Math.max(.25, pinch0.s * d / pinch0.d)) }; return; }
+  if (prev.drag) state.blob = { ...state.blob, x: Math.min(1.05, Math.max(-.05, p.x + prev.drag.ox)), y: Math.min(1.05, Math.max(-.05, p.y + prev.drag.oy)) };
+});
+const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch0 = null; };
+ov.addEventListener('pointerup', up); ov.addEventListener('pointercancel', up);
+
+/* ---------- gacha ---------- */
+function resetPick() {
+  state.picked = false; state.face = 0;
+  $('chip').hidden = true; $('card').hidden = true; $('btnAgain').hidden = true;
+  $('shutter').textContent = '뽑기'; $('shutter').classList.remove('rec');
+}
+function spin() {
+  if (state.spinning) return;
+  state.spinning = true; state.picked = false; $('card').hidden = true; $('btnAgain').hidden = true;
+  $('chip').hidden = false; $('chip').classList.add('spin'); $('shutter').textContent = '...';
+  if (state.recMode && !state.noCam) startRec();
+  const final = Math.floor(Math.random()*FACES.length), steps = reduced ? 5 : 18; let i = 0;
+  const tick = () => {
+    i++;
+    if (i < steps) {
+      state.face = (state.face + 1 + Math.floor(Math.random()*(FACES.length-2))) % FACES.length;
+      $('chipName').textContent = FACES[state.face].name; $('chipNo').textContent = '';
+      setTimeout(tick, 50 + i*i*1.2);
+    } else {
+      state.face = final; state.spinning = false; state.picked = true;
+      const f = FACES[final];
+      $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = `NO.${String(final+1).padStart(2,'0')}`;
+      $('cardNo').textContent = `NO.${String(final+1).padStart(2,'0')} / 10`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
+      $('btnAgain').hidden = false; $('shutter').textContent = '찍기';
+      if (rec) setTimeout(stopRec, 1600);
+    }
+  };
+  tick();
+}
+$('shutter').addEventListener('click', () => state.picked ? shoot() : spin());
+$('btnAgain').addEventListener('click', () => { resetPick(); spin(); });
+
+/* ---------- capture (photo) ---------- */
+function renderOut(W, H, c) {
+  if (state.noCam) { const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#cdebf9'); g.addColorStop(.5, '#f7f4ee'); g.addColorStop(1, '#efbcb5'); c.fillStyle = g; c.fillRect(0, 0, W, H); }
+  else drawCover(c, video, video.videoWidth, video.videoHeight, W, H, state.facing === 'user');
+  const b = state.blob; drawMalang(c, b.x*W, b.y*H, b.s*W, FACES[state.face]);
+  drawCard(c, W, H, FACES[state.face], state.face);
+}
+async function shoot() {
+  if (!state.picked || state.spinning) return;
+  try { await Promise.all([document.fonts.load('84px Jua'), document.fonts.load('30px "IBM Plex Sans KR"')]); } catch (e) {}
+  const cv = document.createElement('canvas'); cv.width = 1080; cv.height = 1920;
+  renderOut(1080, 1920, cv.getContext('2d'));
+  cv.toBlob(blob => {
+    if (!blob) { toast('사진을 만들지 못했어요. 다시 시도해 주세요.'); return; }
+    showResult(blob, 'image');
+  }, 'image/jpeg', .92);
+}
+
+/* ---------- capture (video of the spin) ---------- */
+let rec = null, recCv = null, recChunks = [];
+function pickMime() { return ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
+function startRec() {
+  const mime = pickMime(); if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진으로 저장돼요.'); return; }
+  recCv = document.createElement('canvas'); recCv.width = 720; recCv.height = 1280; recChunks = [];
+  try {
+    rec = new MediaRecorder(recCv.captureStream(30), { mimeType: mime, videoBitsPerSecond: 6e6 });
+    rec.ondataavailable = e => { if (e.data.size) recChunks.push(e.data); };
+    rec.onstop = () => { const blob = new Blob(recChunks, { type: mime.split(';')[0] }); rec = null; showResult(blob, 'video'); };
+    rec.start(200); $('shutter').classList.add('rec');
+  } catch (e) { rec = null; toast('녹화를 시작하지 못했어요. 사진으로 저장돼요.'); }
+}
+function drawRecFrame() { renderOut(recCv.width, recCv.height, recCv.getContext('2d')); }
+function stopRec() { if (rec && rec.state !== 'inactive') { $('shutter').classList.remove('rec'); rec.stop(); } }
+
+/* ---------- result: share / save ---------- */
+function showResult(blob, kind) {
+  if (state.out?.url) URL.revokeObjectURL(state.out.url);
+  const ext = kind === 'video' ? (blob.type.includes('mp4') ? 'mp4' : 'webm') : 'jpg';
+  const file = new File([blob], `malang_${String(state.face+1).padStart(2,'0')}.${ext}`, { type: blob.type });
+  const url = URL.createObjectURL(blob); state.out = { blob, file, url, kind };
+  $('outImg').hidden = kind !== 'image'; $('outVid').hidden = kind !== 'video';
+  if (kind === 'image') $('outImg').src = url; else { $('outVid').src = url; $('outVid').play().catch(() => {}); }
+  $('btnSave').href = url; $('btnSave').download = file.name;
+  $('h-result').innerHTML = kind === 'video' ? '뽑기 영상 완성!<br>스토리에 올려 주세요' : '완성! 스토리에<br>올려 주세요';
+  $('outHint').textContent = navigator.canShare?.({ files: [file] }) ? '공유 버튼을 누르면 인스타그램을 바로 고를 수 있어요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요. 이미지는 길게 눌러 저장할 수도 있어요.';
+  $('status2').textContent = ''; show('s-result');
+}
+$('btnShare').addEventListener('click', async () => {
+  const o = state.out; if (!o) return;
+  if (navigator.canShare?.({ files: [o.file] })) {
+    try { await navigator.share({ files: [o.file], title: '오늘의 말랑이' }); $('status2').textContent = '공유 창을 열었어요.'; }
+    catch (e) { if (e.name !== 'AbortError') $('status2').textContent = '공유에 실패했어요. 저장 버튼으로 내려받아 주세요.'; }
+  } else { $('btnSave').click(); $('status2').textContent = '이 브라우저는 바로 공유가 안 돼서 파일로 저장했어요.'; }
+});
+$('btnRetake').addEventListener('click', () => { show('s-cam'); fitOverlay(); loop(); });
+$('btnSave').addEventListener('click', () => { $('status2').textContent = '저장했어요. 인스타그램 스토리에서 불러와 주세요.'; });
+document.addEventListener('visibilitychange', () => { if (document.hidden && rec) stopRec(); });
+})();
+</script>
+</body>
+</html>
