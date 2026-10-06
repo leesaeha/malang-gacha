@@ -321,11 +321,19 @@ $('btnAgain').addEventListener('click', () => { resetPick(); spin(); });
 $('btnVideo').addEventListener('click', () => { if (state.video) showResult(state.video, 'video'); });
 
 /* ---------- capture (photo) ---------- */
+const layers = {};
+function layerFor(W, H) { const k = W + 'x' + H; if (!layers[k]) { layers[k] = document.createElement('canvas'); layers[k].width = W; layers[k].height = H; } return layers[k]; }
 function renderOut(W, H, c) {
   if (state.noCam) { const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#cdebf9'); g.addColorStop(.5, '#f7f4ee'); g.addColorStop(1, '#efbcb5'); c.fillStyle = g; c.fillRect(0, 0, W, H); }
   else drawCover(c, video, video.videoWidth, video.videoHeight, W, H, state.facing === 'user');
   const b = state.blob;
-  if (state.noCam) drawMalang(c, b.x*W, b.y*H, b.s*W, FACES[state.face]); else drawWindow(c, W, H, b.x*W, b.y*H, b.s*W, FACES[state.face]);
+  if (state.noCam) drawMalang(c, b.x*W, b.y*H, b.s*W, FACES[state.face]);
+  else {
+    // 덮개(구멍 뚫린 레이어)는 별도 캔버스에 만든 뒤 영상 위에 얹는다. 같은 캔버스에서 뚫으면 영상까지 지워져 검게 저장된다.
+    const L = layerFor(W, H), lc = L.getContext('2d'); lc.clearRect(0, 0, W, H);
+    drawWindow(lc, W, H, b.x*W, b.y*H, b.s*W, FACES[state.face]);
+    c.drawImage(L, 0, 0);
+  }
   drawCard(c, W, H, FACES[state.face], state.face);
 }
 async function shoot() {
