@@ -60,6 +60,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
 .shutter:active{transform:scale(.93)}.shutter.rec{background:var(--danger)}
 .controls .side:first-child{justify-self:end}.controls .side:last-child{justify-self:start}
 .side{appearance:none;border:0;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;padding:10px 16px;font-weight:600;font-size:.85rem;cursor:pointer;backdrop-filter:blur(6px);min-width:84px}
+.toast.err{bottom:auto;top:calc(130px + env(safe-area-inset-top,0px));background:#c43d3d;white-space:normal;max-width:85%;text-align:center;font-size:.8rem}
 .toast{position:absolute;left:50%;bottom:140px;transform:translateX(-50%);z-index:3;background:rgba(0,0,0,.7);color:#fff;padding:8px 14px;border-radius:10px;font-size:.85rem;white-space:nowrap}
 
 /* result screen */
@@ -80,6 +81,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
     <button class="btn primary" id="btnCam">카메라 켜고 뽑기</button>
     <button class="btn ghost" id="btnNoCam">카메라 없이 뽑기</button>
     <p class="status" id="status0" role="status"></p>
+    <p class="status" id="ver"></p>
   </div>
 </main>
 
@@ -95,6 +97,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
     <div class="chip" id="chip" hidden><b id="chipName"></b><span id="chipNo"></span></div>
     <div class="card" id="card" hidden><small id="cardNo"></small><b id="cardName"></b><span id="cardLine"></span></div>
     <div class="toast" id="toast" hidden></div>
+    <div class="toast err" id="recErr" hidden></div>
     <div class="controls">
       <button class="side" id="btnAgain" hidden>다시 뽑기</button>
       <button class="shutter" id="shutter">뽑기</button>
@@ -122,6 +125,7 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
 'use strict';
 const PURPLE = '#5c47e1', BLUSH = '#f09a93';
 const TAGS = '#말랑 #Malang #플루이즈';
+const VERSION = 'v1.7';
 /* BODY: make_body.py가 원본 이미지에서 측정한 값. span = 왼눈→오른눈 셀 간격, fx0/fy0 = 격자 원점(몸통 비율), fcell = 셀 크기(몸통 너비 비율) */
 const BODY = {"span": 13, "w": 2370, "h": 2338, "fx0": 0.0989, "fy0": 0.2941, "fcell": 0.03027};
 const FACES = [
@@ -227,6 +231,7 @@ function show(id) { for (const s of ['s-start','s-cam','s-result']) $(s).hidden 
 
 bodyImg.onload = () => paintHero();
 $('eyebrow').textContent = `TODAY'S MALANG · ${FACES.length} FACES`;
+$('ver').textContent = VERSION;
 $('leadText').textContent = `카메라를 켜면 말랑이 모양 창이 떠요. 실물 말랑이를 창에 맞추고 뽑기를 누르면 총 ${FACES.length}가지 표정이 돌아가고, 정지하면 그 표정이 오늘의 말랑이. 사진이나 영상으로 저장해 스토리에 올려 주세요.`;
 function paintHero() { const c = $('heroCv').getContext('2d'); c.clearRect(0,0,600,600); drawMalang(c, 300, 310, 520, FACES[0]); }
 
@@ -301,7 +306,7 @@ function spin() {
   if (state.spinning) return;
   state.spinning = true; state.picked = false; state.video = null;
   $('card').hidden = true; $('btnAgain').hidden = true; $('btnVideo').hidden = true;
-  $('chip').hidden = false; $('chip').classList.add('spin'); $('shutter').textContent = '정지';
+  $('chip').hidden = false; $('chip').classList.add('spin'); $('shutter').textContent = '정지'; $('recErr').hidden = true;
   startRec();
   spinTimer = setInterval(() => {
     state.face = (state.face + 1 + Math.floor(Math.random()*(FACES.length-1))) % FACES.length;
@@ -361,14 +366,32 @@ async function pickAvc() {
 }
 function pickMime() { return ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
 function nativeMp4Mime() { return ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
+let wcProbe = null; // WebCodecs가 mp4 조립에 필요한 디코더 설정(avcC)을 주는지 1회 검사
+async function probeWebCodecs(codec) {
+  if (wcProbe !== null) return wcProbe;
+  try {
+    let ok = false; const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+    const enc = new VideoEncoder({ output: (c, m) => { if (m && m.decoderConfig && m.decoderConfig.description) ok = true; }, error: () => {} });
+    enc.configure({ codec, width: 64, height: 64, bitrate: 2e5, framerate: 30, avc: { format: 'avc' } });
+    for (let i = 0; i < 2; i++) { const f = new VideoFrame(cv, { timestamp: i * 33333 }); enc.encode(f, { keyFrame: i === 0 }); f.close(); }
+    await enc.flush(); enc.close(); wcProbe = ok;
+  } catch (e) { wcProbe = false; }
+  return wcProbe;
+}
+let engineName = '';
 async function startRec() {
+  try { await startRecInner(); } catch (e) { recFail('녹화 시작 오류: ' + (e && e.message || e)); }
+}
+async function startRecInner() {
   recCv = document.createElement('canvas'); recCv.width = REC_W; recCv.height = REC_H;
-  // 사파리(WebKit)는 WebCodecs가 avcC를 주지 않아 자체 녹화기(mp4) 사용, 그 외는 WebCodecs로 정식 mp4 생성
   const isSafari = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android|SamsungBrowser/.test(navigator.userAgent);
   const nat = nativeMp4Mime();
-  if (isSafari && nat && startMediaRecorder(nat)) return;
+  if (isSafari && nat) { engineName = 'safari-mp4'; if (startMediaRecorder(nat)) return; }
   const codec = await pickAvc();
-  if (codec) {
+  const wcOK = codec ? await probeWebCodecs(codec) : false;
+  if (!wcOK && nat) { engineName = 'native-mp4'; if (startMediaRecorder(nat)) return; }
+  if (codec && wcOK) {
+    engineName = 'webcodecs';
     try {
       const target = new Mp4Muxer.ArrayBufferTarget();
       const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: REC_W, height: REC_H }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
@@ -387,6 +410,7 @@ async function startRec() {
   }
   const mime = nat || pickMime();
   if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진만 저장돼요.'); return; }
+  engineName = 'native-' + mime.split('/')[1].split(';')[0];
   if (!startMediaRecorder(mime)) recFail('녹화를 시작하지 못했어요.');
 }
 function startMediaRecorder(mime) {
@@ -424,7 +448,7 @@ function recDone(blob) {
   if (!blob || blob.size < 1000) { recFail('영상이 비어 있어요. 다시 뽑아 주세요.'); return; }
   state.video = blob; $('btnVideo').hidden = false; toast('영상 준비 완료. 영상 저장을 눌러 주세요.');
 }
-function recFail(msg) { rec = null; state.video = null; $('btnVideo').hidden = true; toast(msg); }
+function recFail(msg) { rec = null; state.video = null; $('btnVideo').hidden = true; const el = $('recErr'); el.textContent = `${msg} (${engineName || 'none'} · ${VERSION})`; el.hidden = false; }
 
 /* ---------- result: share / save ---------- */
 function showResult(blob, kind) {
@@ -436,7 +460,7 @@ function showResult(blob, kind) {
   if (kind === 'image') $('outImg').src = url; else { $('outVid').src = url; $('outVid').play().catch(() => {}); }
   $('btnSave').href = url; $('btnSave').download = file.name;
   $('h-result').innerHTML = kind === 'video' ? '뽑기 영상 완성!<br>스토리에 올려 주세요' : '완성! 스토리에<br>올려 주세요';
-  $('outHint').textContent = (kind === 'video' ? `mp4 ${(blob.size/1048576).toFixed(1)}MB · ` : '') + (navigator.canShare?.({ files: [file] }) ? '공유하기에서 인스타그램을 고르거나, 저장을 눌러 갤러리에 넣어 주세요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요.');
+  $('outHint').textContent = (kind === 'video' ? `${blob.type.split('/')[1] || 'video'} ${(blob.size/1048576).toFixed(1)}MB · ${engineName} · ` : '') + (navigator.canShare?.({ files: [file] }) ? '공유하기에서 인스타그램을 고르거나, 저장을 눌러 갤러리에 넣어 주세요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요.');
   $('status2').textContent = ''; show('s-result');
 }
 $('btnShare').addEventListener('click', async () => {
