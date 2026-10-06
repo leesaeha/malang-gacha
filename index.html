@@ -360,29 +360,45 @@ async function pickAvc() {
   return null;
 }
 function pickMime() { return ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
+function nativeMp4Mime() { return ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || ''; }
 async function startRec() {
   recCv = document.createElement('canvas'); recCv.width = REC_W; recCv.height = REC_H;
+  // 사파리(WebKit)는 WebCodecs가 avcC를 주지 않아 자체 녹화기(mp4) 사용, 그 외는 WebCodecs로 정식 mp4 생성
+  const isSafari = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|CriOS|Chromium|Android|SamsungBrowser/.test(navigator.userAgent);
+  const nat = nativeMp4Mime();
+  if (isSafari && nat && startMediaRecorder(nat)) return;
   const codec = await pickAvc();
   if (codec) {
     try {
       const target = new Mp4Muxer.ArrayBufferTarget();
       const muxer = new Mp4Muxer.Muxer({ target, video: { codec: 'avc', width: REC_W, height: REC_H }, fastStart: 'in-memory', firstTimestampBehavior: 'offset' });
-      const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { recFail('인코더 오류: ' + e.message); } });
+      const enc = new VideoEncoder({
+        output: (chunk, meta) => {
+          const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+          const m = meta && meta.decoderConfig ? meta : undefined;
+          muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, chunk.duration ?? Math.round(1e6 / REC_FPS), m);
+        },
+        error: e => { recFail('인코더 오류: ' + e.message); }
+      });
       enc.configure({ codec, width: REC_W, height: REC_H, bitrate: 4e6, framerate: REC_FPS, avc: { format: 'avc' }, latencyMode: 'realtime' });
       rec = { kind: 'webcodecs', enc, muxer, target, t0: performance.now(), n: 0, last: -1, state: 'recording' };
       $('shutter').classList.add('rec'); return;
     } catch (e) { rec = null; }
   }
-  const mime = pickMime();
+  const mime = nat || pickMime();
   if (!mime) { toast('이 브라우저는 영상 녹화를 지원하지 않아 사진만 저장돼요.'); return; }
+  if (!startMediaRecorder(mime)) recFail('녹화를 시작하지 못했어요.');
+}
+function startMediaRecorder(mime) {
   try {
     const mr = new MediaRecorder(recCv.captureStream(REC_FPS), { mimeType: mime, videoBitsPerSecond: 5e6 });
     const chunks = [];
     mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
     mr.onstop = () => { recDone(new Blob(chunks, { type: mime.split(';')[0] })); };
-    mr.onerror = e => recFail('녹화 오류: ' + (e.error?.name || '')); 
+    mr.onerror = e => recFail('녹화 오류: ' + (e.error?.name || e.error?.message || ''));
     mr.start(200); rec = { kind: 'mediarecorder', mr, state: 'recording' }; $('shutter').classList.add('rec');
-  } catch (e) { rec = null; recFail('녹화를 시작하지 못했어요: ' + e.message); }
+    return true;
+  } catch (e) { rec = null; return false; }
 }
 function drawRecFrame() {
   if (!rec || rec.state !== 'recording' || !recCv) return;
