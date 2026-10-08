@@ -125,7 +125,18 @@ p{margin:0}.lead{color:var(--muted);font-size:.95rem;max-width:34ch}
 'use strict';
 const PURPLE = '#5c47e1', BLUSH = '#f09a93';
 const TAGS = '#말랑 #Malang #플루이즈';
-const VERSION = 'v1.7';
+const VERSION = 'v1.8';
+/* 집계: 구글 Apps Script 웹앱 URL을 넣으면 뽑기·저장 이벤트가 시트에 한 줄씩 기록된다. 비워 두면 아무것도 보내지 않는다. */
+const LOG_URL = '';
+const SESSION = Math.random().toString(36).slice(2, 10);
+function logEvent(type, extra) {
+  if (!LOG_URL) return;
+  try {
+    const body = JSON.stringify({ t: new Date().toISOString(), type, face: FACES[state.face]?.name || '', session: SESSION, ua: navigator.userAgent.slice(0, 80), ...extra });
+    if (navigator.sendBeacon) navigator.sendBeacon(LOG_URL, new Blob([body], { type: 'text/plain' }));
+    else fetch(LOG_URL, { method: 'POST', mode: 'no-cors', body });
+  } catch (e) { /* 집계 실패는 참가자 흐름에 영향 주지 않음 */ }
+}
 /* BODY: make_body.py가 원본 이미지에서 측정한 값. span = 왼눈→오른눈 셀 간격, fx0/fy0 = 격자 원점(몸통 비율), fcell = 셀 크기(몸통 너비 비율) */
 const BODY = {"span": 13, "w": 2370, "h": 2338, "fx0": 0.0989, "fy0": 0.2941, "fcell": 0.03027};
 const FACES = [
@@ -319,6 +330,7 @@ function stopSpin() {
   $('chip').classList.remove('spin'); $('chipName').textContent = f.name; $('chipNo').textContent = '';
   $('cardNo').textContent = `오늘의 말랑이 · ${FACES.length}가지 중 하나`; $('cardName').textContent = f.name; $('cardLine').textContent = f.line; $('card').hidden = false;
   $('btnAgain').hidden = false; $('shutter').textContent = '찍기';
+  logEvent('pick');
   if (rec) { toast('영상 마무리 중...'); setTimeout(stopRec, 1500); }
 }
 $('shutter').addEventListener('click', () => state.spinning ? stopSpin() : (state.picked ? shoot() : spin()));
@@ -461,12 +473,12 @@ function showResult(blob, kind) {
   $('btnSave').href = url; $('btnSave').download = file.name;
   $('h-result').innerHTML = kind === 'video' ? '뽑기 영상 완성!<br>스토리에 올려 주세요' : '완성! 스토리에<br>올려 주세요';
   $('outHint').textContent = (kind === 'video' ? `${blob.type.split('/')[1] || 'video'} ${(blob.size/1048576).toFixed(1)}MB · ${engineName} · ` : '') + (navigator.canShare?.({ files: [file] }) ? '공유하기에서 인스타그램을 고르거나, 저장을 눌러 갤러리에 넣어 주세요.' : '저장을 누른 뒤 인스타그램에서 불러와 주세요.');
-  $('status2').textContent = ''; show('s-result');
+  $('status2').textContent = ''; logEvent('save', { kind }); show('s-result');
 }
 $('btnShare').addEventListener('click', async () => {
   const o = state.out; if (!o) return;
   if (navigator.canShare?.({ files: [o.file] })) {
-    try { await navigator.share({ files: [o.file], title: '오늘의 말랑이' }); $('status2').textContent = '공유 창을 열었어요.'; }
+    try { await navigator.share({ files: [o.file], title: '오늘의 말랑이' }); $('status2').textContent = '공유 창을 열었어요.'; logEvent('share', { kind: o.kind }); }
     catch (e) { if (e.name !== 'AbortError') $('status2').textContent = '공유 실패: ' + e.message + ' · 저장 버튼을 눌러 주세요.'; }
   } else { $('btnSave').click(); $('status2').textContent = '이 브라우저는 바로 공유가 안 돼서 파일로 저장했어요.'; }
 });
